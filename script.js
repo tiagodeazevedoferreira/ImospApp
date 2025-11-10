@@ -1,5 +1,5 @@
-// script.js - Minhas Finanças PWA (CORRIGIDO FINAL: Valores + Erros)
-// Atualização: 10/11/2025 - Parser flexível + Funções completas + Debug
+// script.js - Minhas Finanças PWA (CORRIGIDO FINAL: Sintaxe + Valores + Erros)
+// Atualização: 10/11/2025 - Funções completas + Sintaxe OK + Debug
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSd2zPDrzqTbO8DEMDoPsAzjLn4TioBdACyD4CzxPROfSHH6KVyK_6j2inlLjWCLDf8sKqO2S6WgxNB/pub?gid=2000957643&single=true&output=csv';
 
@@ -15,7 +15,7 @@ function showError(msg) {
   }
 }
 
-function formatarMo earmeda(v) { 
+function formatarMoeda(v) { 
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0); 
 }
 
@@ -81,10 +81,10 @@ async function carregarDados() {
       });
 
       // Valores padrão
-      obj.Valor = obj.Valor || 0;
-      obj.Data = obj.Data || null;
-      obj.Tipo = obj.Tipo || '';
-      obj.Aba = obj.Aba || '';
+      obj.Valor = obj.Valor ?? 0;
+      obj.Data = obj.Data ?? null;
+      obj.Tipo = obj.Tipo ?? '';
+      obj.Aba = obj.Aba ?? '';
 
       return obj;
     }).filter(d => d.Data !== null); // Remove datas inválidas
