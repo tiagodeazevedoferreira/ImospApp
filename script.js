@@ -1,5 +1,5 @@
-// script.js - Minhas Finanças PWA (CORRIGIDO FINAL: Sintaxe + Valores + Erros)
-// Atualização: 10/11/2025 - Funções completas + Sintaxe OK + Debug
+// script.js - Minhas Finanças PWA (FILTROS GLOBAIS + URL CORRETA)
+// Atualização: 11/11/2025 11:50 - URL corrigida
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSd2zPDrzqTbO8DEMDoPsAzjLn4TioBdACyD4CzxPROfSHH6KVyK_6j2inlLjWCLDf8sKqO2S6WgxNB/pub?gid=2000957643&single=true&output=csv';
 
@@ -19,11 +19,9 @@ function formatarMoeda(v) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0); 
 }
 
-// PARSER DE MOEDA FLEXÍVEL
 function parseMoeda(str) {
   if (!str) return 0;
-  const limpo = str
-    .toString()
+  const limpo = str.toString()
     .replace(/"/g, '')
     .replace(/R\$/gi, '')
     .replace(/\s/g, '')
@@ -34,7 +32,6 @@ function parseMoeda(str) {
   return isNaN(num) ? 0 : num;
 }
 
-// PARSER DE DATA RÍGIDO
 function parseDataBR(str) {
   if (!str || typeof str !== 'string') return null;
   str = str.trim();
@@ -47,10 +44,25 @@ function parseDataBR(str) {
   return data.getDate() === d ? data : null;
 }
 
+function getMesAno(data) {
+  if (!data) return '';
+  return `${data.getMonth() + 1}/${data.getFullYear()}`;
+}
+
+function nomeMesAbrev(mes) {
+  const nomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  return nomes[mes];
+}
+
+function getSemanaDoMes(data) {
+  if (!data) return 0;
+  return Math.ceil(data.getDate() / 7);
+}
+
 async function carregarDados() {
   try {
     const res = await fetch(CSV_URL + `&t=${Date.now()}`, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`Erro ${res.status}`);
+    if (!res.ok) throw new Error(`Erro ${res.status}: Verifique a URL do CSV.`);
     const txt = await res.text();
     const linhas = txt.split('\n').map(l => l.trim()).filter(Boolean);
     if (linhas.length < 2) throw new Error('CSV vazio.');
@@ -75,55 +87,147 @@ async function carregarDados() {
         if (col === 'Tipo' || lower.includes('tipo')) {
           obj.Tipo = val.trim();
         }
-        if (col === 'Aba' || lower.includes('aba') || lower.includes('mês')) {
-          obj.Aba = val.trim();
+        if (lower.includes('categoria') && !lower.includes('sub')) {
+          obj.Categoria = val.trim();
+        }
+        if (lower.includes('sub-categoria2') || lower.includes('conversão')) {
+          obj.SubCategoria = val.trim();
         }
       });
 
-      // Valores padrão
       obj.Valor = obj.Valor ?? 0;
       obj.Data = obj.Data ?? null;
       obj.Tipo = obj.Tipo ?? '';
-      obj.Aba = obj.Aba ?? '';
+      obj.Categoria = obj.Categoria ?? '';
+      obj.SubCategoria = obj.SubCategoria ?? '';
 
       return obj;
-    }).filter(d => d.Data !== null); // Remove datas inválidas
-
-    console.log('Dados processados:', dados);
+    }).filter(d => d.Data !== null);
 
     if (dados.length === 0) {
-      showError('Nenhum dado válido encontrado.');
+      showError('Nenhum dado válido (verifique Data, Valor, Tipo).');
       return;
     }
 
     popularFiltros();
-    exibirTudo();
+    aplicarFiltros();
   } catch (err) {
-    showError(`Erro: ${err.message}`);
+    showError(`Erro ao carregar dados: ${err.message}`);
     console.error(err);
   }
 }
 
+// === FILTROS GLOBAIS ===
 function popularFiltros() {
-  const meses = [...new Set(dados.map(d => d.Aba).filter(Boolean))].sort();
-  const anos = [...new Set(dados.filter(d => d.Data).map(d => d.Data.getFullYear()))].sort((a, b) => a - b);
+  const anos = [...new Set(dados.map(d => d.Data.getFullYear()))].sort((a, b) => a - b);
+  ['ano-resumo', 'ano-semanal', 'ano-mensal', 'ano-comparativo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = '<option value="">Todos os anos</option>';
+      anos.forEach(a => el.add(new Option(a, a)));
+    }
+  });
 
-  const sm = document.getElementById('mes-semanal');
-  if (sm) {
-    sm.innerHTML = '<option value="">Todos os meses</option>';
-    meses.forEach(m => sm.add(new Option(m, m)));
-  }
+  const mesesUnicos = [...new Set(dados.map(d => d.Data.getMonth()))].sort((a, b) => a - b);
+  ['mes-resumo', 'mes-semanal', 'mes-mensal', 'mes-comparativo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = '<option value="">Todos os meses</option>';
+      mesesUnicos.forEach(m => el.add(new Option(nomeMesAbrev(m), m)));
+    }
+  });
 
-  const sa = document.getElementById('ano-mensal');
-  if (sa) {
-    sa.innerHTML = '<option value="">Todos os anos</option>';
-    anos.forEach(a => sa.add(new Option(a, a)));
-  }
+  const semanas = [1, 2, 3, 4, 5];
+  ['semana-resumo', 'semana-semanal', 'semana-mensal', 'semana-comparativo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = '<option value="">Todas as semanas</option>';
+      semanas.forEach(s => el.add(new Option(`Semana ${s}`, s)));
+    }
+  });
+
+  const tipos = [...new Set(dados.map(d => d.Tipo))].filter(Boolean);
+  ['tipo-resumo', 'tipo-semanal', 'tipo-mensal', 'tipo-comparativo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = '<option value="">Todas as movimentações</option>';
+      tipos.forEach(t => el.add(new Option(t, t)));
+    }
+  });
+
+  const categorias = [...new Set(dados.map(d => d.Categoria))].filter(Boolean).sort();
+  ['cat-resumo', 'cat-semanal', 'cat-mensal', 'cat-comparativo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = '<option value="">Todas as categorias</option>';
+      categorias.forEach(c => el.add(new Option(c, c)));
+    }
+  });
+
+  const subs = [...new Set(dados.map(d => d.SubCategoria))].filter(Boolean).sort();
+  ['subcat-resumo', 'subcat-semanal', 'subcat-mensal', 'subcat-comparativo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = '<option value="">Todas as sub-categorias</option>';
+      subs.forEach(s => el.add(new Option(s, s)));
+    }
+  });
 }
 
+function obterDadosFiltrados() {
+  const ano = document.getElementById('ano-resumo')?.value || 
+              document.getElementById('ano-semanal')?.value || 
+              document.getElementById('ano-mensal')?.value || 
+              document.getElementById('ano-comparativo')?.value || '';
+
+  const mes = document.getElementById('mes-resumo')?.value || 
+              document.getElementById('mes-semanal')?.value || 
+              document.getElementById('mes-mensal')?.value || 
+              document.getElementById('mes-comparativo')?.value || '';
+
+  const semana = document.getElementById('semana-resumo')?.value || 
+                 document.getElementById('semana-semanal')?.value || 
+                 document.getElementById('semana-mensal')?.value || 
+                 document.getElementById('semana-comparativo')?.value || '';
+
+  const tipo = document.getElementById('tipo-resumo')?.value || 
+               document.getElementById('tipo-semanal')?.value || 
+               document.getElementById('tipo-mensal')?.value || 
+               document.getElementById('tipo-comparativo')?.value || '';
+
+  const cat = document.getElementById('cat-resumo')?.value || 
+              document.getElementById('cat-semanal')?.value || 
+              document.getElementById('cat-mensal')?.value || 
+              document.getElementById('cat-comparativo')?.value || '';
+
+  const subcat = document.getElementById('subcat-resumo')?.value || 
+                 document.getElementById('subcat-semanal')?.value || 
+                 document.getElementById('subcat-mensal')?.value || 
+                 document.getElementById('subcat-comparativo')?.value || '';
+
+  return dados.filter(d => {
+    if (ano && d.Data.getFullYear() != ano) return false;
+    if (mes !== '' && d.Data.getMonth() != mes) return false;
+    if (semana && getSemanaDoMes(d.Data) != semana) return false;
+    if (tipo && d.Tipo !== tipo) return false;
+    if (cat && d.Categoria !== cat) return false;
+    if (subcat && d.SubCategoria !== subcat) return false;
+    return true;
+  });
+}
+
+function aplicarFiltros() {
+  exibirResumo();
+  exibirSemanal();
+  exibirMensal();
+  exibirComparativo();
+}
+
+// === FUNÇÕES DE EXIBIÇÃO ===
 function exibirResumo() {
-  const entradas = dados.filter(d => d.Tipo === 'Entrada').reduce((s, d) => s + d.Valor, 0);
-  const saidas = dados.filter(d => d.Tipo === 'Saída').reduce((s, d) => s + d.Valor, 0);
+  const filtrados = obterDadosFiltrados();
+  const entradas = filtrados.filter(d => d.Tipo === 'Entrada').reduce((s, d) => s + d.Valor, 0);
+  const saidas = filtrados.filter(d => d.Tipo === 'Saída').reduce((s, d) => s + d.Valor, 0);
 
   const te = document.getElementById('totalEntradas');
   const ts = document.getElementById('totalSaidas');
@@ -133,11 +237,17 @@ function exibirResumo() {
   if (sf) sf.textContent = formatarMoeda(entradas - saidas);
 
   const ctx = document.getElementById('graficoSaldo')?.getContext('2d');
-  if (!ctx) return;
+  if (!ctx || filtrados.length === 0) return;
 
-  const labels = [...new Set(dados.map(d => `${d.Data.getDate()}/${d.Data.getMonth() + 1}`))].sort((a, b) => parseDataBR(a) - parseDataBR(b));
+  const labels = [...new Set(filtrados.map(d => `${d.Data.getDate()}/${d.Data.getMonth() + 1}`))].sort((a, b) => {
+    const [da, ma] = a.split('/').map(Number);
+    const [db, mb] = b.split('/').map(Number);
+    return new Date(2025, ma - 1, da) - new Date(2025, mb - 1, db);
+  });
+
   const saldoAcum = labels.map(l => {
-    const ate = dados.filter(d => `${d.Data.getDate()}/${d.Data.getMonth() + 1}` <= l);
+    const [dia, mes] = l.split('/').map(Number);
+    const ate = filtrados.filter(d => d.Data.getMonth() === mes - 1 && d.Data.getDate() <= dia);
     const ent = ate.filter(d => d.Tipo === 'Entrada').reduce((s, d) => s + d.Valor, 0);
     const sai = ate.filter(d => d.Tipo === 'Saída').reduce((s, d) => s + d.Valor, 0);
     return ent - sai;
@@ -152,17 +262,16 @@ function exibirResumo() {
 }
 
 function exibirSemanal() {
-  const mesFiltro = document.getElementById('mes-semanal')?.value;
-  const dadosFiltrados = mesFiltro ? dados.filter(d => d.Aba === mesFiltro) : dados;
-
+  const filtrados = obterDadosFiltrados();
   const semanas = {};
-  dadosFiltrados.forEach(d => {
-    const semana = `Semana ${Math.ceil(d.Data.getDate() / 7)}`;
+  filtrados.forEach(d => {
+    const semanaNum = getSemanaDoMes(d.Data);
+    const semana = `Semana ${semanaNum}`;
     semanas[semana] = semanas[semana] || { entrada: 0, saida: 0 };
     semanas[semana][d.Tipo === 'Entrada' ? 'entrada' : 'saida'] += d.Valor;
   });
 
-  const labels = Object.keys(semanas).sort();
+  const labels = Object.keys(semanas).sort((a, b) => parseInt(a.match(/\d+/)) - parseInt(b.match(/\d+/)));
   const entradas = labels.map(l => semanas[l].entrada);
   const saidas = labels.map(l => semanas[l].saida);
 
@@ -181,14 +290,12 @@ function exibirSemanal() {
 }
 
 function exibirMensal() {
-  const anoFiltro = document.getElementById('ano-mensal')?.value;
-  const dadosFiltrados = anoFiltro ? dados.filter(d => d.Data.getFullYear() == anoFiltro) : dados;
-
+  const filtrados = obterDadosFiltrados();
   const meses = {};
-  dadosFiltrados.forEach(d => {
-    const mes = `${d.Data.getMonth() + 1}/${d.Data.getFullYear()}`;
-    meses[mes] = meses[mes] || { entrada: 0, saida: 0 };
-    meses[mes][d.Tipo === 'Entrada' ? 'entrada' : 'saida'] += d.Valor;
+  filtrados.forEach(d => {
+    const ma = getMesAno(d.Data);
+    meses[ma] = meses[ma] || { entrada: 0, saida: 0 };
+    meses[ma][d.Tipo === 'Entrada' ? 'entrada' : 'saida'] += d.Valor;
   });
 
   const head = document.getElementById('tabelaMensalHead');
@@ -197,20 +304,24 @@ function exibirMensal() {
 
   head.innerHTML = `<tr class="bg-blue-800 text-white"><th class="p-2">Mês</th><th class="p-2">Entradas</th><th class="p-2">Saídas</th><th class="p-2">Saldo</th></tr>`;
   body.innerHTML = '';
-  Object.keys(meses).sort().forEach(m => {
-    const e = meses[m].entrada, s = meses[m].saida;
+
+  Object.keys(meses).sort().forEach(ma => {
+    const [m, a] = ma.split('/');
+    const label = `${nomeMesAbrev(parseInt(m) - 1)}/${a.slice(-2)}`;
+    const e = meses[ma].entrada, s = meses[ma].saida;
     const tr = document.createElement('tr');
     tr.className = 'border-b';
-    tr.innerHTML = `<td class="p-2">${m}</td><td class="p-2">${formatarMoeda(e)}</td><td class="p-2">${formatarMoeda(s)}</td><td class="p-2 font-bold">${formatarMoeda(e - s)}</td>`;
+    tr.innerHTML = `<td class="p-2">${label}</td><td class="p-2">${formatarMoeda(e)}</td><td class="p-2">${formatarMoeda(s)}</td><td class="p-2 font-bold">${formatarMoeda(e - s)}</td>`;
     body.appendChild(tr);
   });
 }
 
 function exibirComparativo() {
-  const anos = [...new Set(dados.filter(d => d.Data).map(d => d.Data.getFullYear()))].sort((a, b) => a - b);
+  const filtrados = obterDadosFiltrados();
+  const anos = [...new Set(filtrados.map(d => d.Data.getFullYear()))].sort((a, b) => a - b);
   const porAno = {};
   anos.forEach(a => porAno[a] = { entrada: 0, saida: 0 });
-  dados.forEach(d => {
+  filtrados.forEach(d => {
     const ano = d.Data.getFullYear();
     porAno[ano][d.Tipo === 'Entrada' ? 'entrada' : 'saida'] += d.Valor;
   });
@@ -234,10 +345,7 @@ function exibirComparativo() {
 }
 
 function exibirTudo() {
-  exibirResumo();
-  exibirSemanal();
-  exibirMensal();
-  exibirComparativo();
+  aplicarFiltros();
 }
 
 function showTab(id) {
@@ -247,19 +355,20 @@ function showTab(id) {
   const btn = document.getElementById(id + '-btn');
   if (tab) tab.classList.add('active');
   if (btn) btn.classList.add('active-tab');
-  if (id === 'semanal') exibirSemanal();
-  if (id === 'mensal') exibirMensal();
+  aplicarFiltros();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   carregarDados();
-  const mesSel = document.getElementById('mes-semanal');
-  const anoSel = document.getElementById('ano-mensal');
-  if (mesSel) mesSel.addEventListener('change', exibirSemanal);
-  if (anoSel) anoSel.addEventListener('change', exibirMensal);
+
+  document.querySelectorAll('select[id^="ano-"], select[id^="mes-"], select[id^="semana-"], select[id^="tipo-"], select[id^="cat-"], select[id^="subcat-"]').forEach(el => {
+    el.addEventListener('change', aplicarFiltros);
+  });
+
   document.querySelectorAll('.tab-button').forEach(b => {
     b.addEventListener('click', () => showTab(b.id.replace('-btn', '')));
   });
+
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
