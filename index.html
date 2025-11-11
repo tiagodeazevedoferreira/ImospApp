@@ -3,104 +3,254 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Minhas Finanças</title>
-
-  <!-- Favicon -->
-  <link rel="icon" href="icon-192.png" type="image/png">
-
-  <!-- Tailwind CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <!-- Font Awesome -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
-
-  <!-- PWA -->
-  <link rel="manifest" href="manifest.json" />
-  <meta name="theme-color" content="#1e40af" />
-
-  <link href="style.css" rel="stylesheet" />
+  <title>Pré-visualização e Download do script.js</title>
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Highlight.js para syntax highlight -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
 </head>
 <body class="bg-gray-100 font-sans">
 
-  <header class="bg-blue-800 text-white text-center py-4 shadow-lg">
-    <h1 class="text-2xl font-bold">Minhas Finanças</h1>
-  </header>
+  <div class="container mx-auto p-6 max-w-4xl">
+    <h1 class="text-3xl font-bold text-center text-blue-800 mb-6">Pré-visualização do <code>script.js</code></h1>
+    
+    <div class="bg-white rounded-lg shadow-lg p-4 mb-6">
+      <pre><code class="javascript" id="code-preview">
+// script.js - Minhas Finanças PWA (Parser de Moeda Blindado + CSV_URL Correto)
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSd2zPDrzqTbO8DEMDoPsAzjLn4TioBdACyD4CzxPROfSHH6KVyK_6j2inlLjWCLDf8sKqO2S6WgxNB/pub?gid=2000957643&single=true&output=csv';
 
-  <nav class="flex overflow-x-auto bg-gray-200 p-2 space-x-1 md:space-x-2">
-    <button class="tab-button active-tab flex-1 md:flex-none" id="resumo-btn">
-      <i class="fas fa-home mr-1"></i> Resumo
-    </button>
-    <button class="tab-button flex-1 md:flex-none" id="semanal-btn">
-      <i class="fas fa-calendar-week mr-1"></i> Por Semana
-    </button>
-    <button class="tab-button flex-1 md:flex-none" id="mensal-btn">
-      <i class="fas fa-calendar-month mr-1"></i> Por Mês
-    </button>
-    <button class="tab-button flex-1 md:flex-none" id="comparativo-btn">
-      <i class="fas fa-chart-line mr-1"></i> Comparativo
-    </button>
-  </nav>
+let dados = [];
+let graficoSaldo, graficoSemanal, graficoComparativo;
 
-  <div id="errorMessage" class="bg-red-100 text-red-700 p-3 text-center hidden"></div>
+function showError(msg) {
+  const el = document.getElementById('errorMessage');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 8000);
+}
 
-  <main class="p-4">
+function formatarMoeda(v) { 
+  return new Intl.NumberFormat('pt-BR', {style:'currency', currency:'BRL'}).format(v || 0); 
+}
 
-    <!-- ABA RESUMO -->
-    <div id="resumo" class="tab-content active">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div class="bg-green-100 p-4 rounded-lg shadow text-center">
-          <h3 class="font-bold text-green-800">Entradas Totais</h3>
-          <p id="totalEntradas" class="text-2xl font-bold text-green-600">R$ 0,00</p>
-        </div>
-        <div class="bg-red-100 p-4 rounded-lg shadow text-center">
-          <h3 class="font-bold text-red-800">Saídas Totais</h3>
-          <p id="totalSaidas" class="text-2xl font-bold text-red-600">R$ 0,00</p>
-        </div>
-        <div class="bg-blue-100 p-4 rounded-lg shadow text-center">
-          <h3 class="font-bold text-blue-800">Saldo Final</h3>
-          <p id="saldoFinal" class="text-2xl font-bold text-blue-600">R$ 0,00</p>
-        </div>
-      </div>
-      <canvas id="graficoSaldo" class="chart"></canvas>
+// PARSER DE MOEDA BLINDADO (aceita R$, espaços, aspas, pontos, vírgulas)
+function parseMoeda(str) {
+  if (!str) return 0;
+  const limpo = str
+    .toString()
+    .replace(/"/g, '')           // Remove aspas
+    .replace(/R\$/gi, '')        // Remove R$
+    .replace(/\s/g, '')          // Remove espaços
+    .replace(/\./g, '')          // Remove pontos (milhar)
+    .replace(/,/g, '.')          // Vírgula vira ponto
+    .trim();
+  const num = parseFloat(limpo);
+  return isNaN(num) ? 0 : num;
+}
+
+function parseDataBR(str) {
+  if (!str || str.includes('NaN')) return null;
+  const [d, m, a] = str.split('/');
+  if (!d || !m || !a) return null;
+  return new Date(`${a}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`);
+}
+
+async function carregarDados() {
+  try {
+    const res = await fetch(CSV_URL + `&t=${Date.now()}`, { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`Erro ${res.status}: Verifique o link da planilha.`);
+    const txt = await res.text();
+    const linhas = txt.split('\n').map(l => l.trim()).filter(Boolean);
+    const head = linhas[0].split(',').map(h => h.trim());
+
+    dados = linhas.slice(1).map(l => {
+      const v = l.split(',').map(val => val.trim().replace(/^"|"$/g, '')); // Remove aspas externas
+      const o = {};
+      head.forEach((c, i) => {
+        const valorRaw = v[i] || '';
+        if (c.toLowerCase().includes('valor')) {
+          o[c] = parseMoeda(valorRaw);
+        } else if (c === 'Data') {
+          o[c] = parseDataBR(valorRaw);
+        } else {
+          o[c] = valorRaw;
+        }
+      });
+      return o;
+    }).filter(d => d.Data && !isNaN(d.Valor || 0)); // Filtra linhas inválidas
+
+    popularFiltros();
+    exibirTudo();
+  } catch (err) {
+    showError(`Falha ao carregar dados: ${err.message}`);
+    console.error(err);
+  }
+}
+
+function popularFiltros() {
+  const meses = [...new Set(dados.map(d => d.Aba).filter(Boolean))].sort();
+  const anos = [...new Set(dados.map(d => d.Data?.getFullYear()).filter(Boolean))].sort();
+  
+  const sm = document.getElementById('mes-semanal');
+  sm.innerHTML = '<option value="">Todos os meses</option>';
+  meses.forEach(m => {
+    const o = document.createElement('option');
+    o.value = o.textContent = m;
+    sm.appendChild(o);
+  });
+
+  const sa = document.getElementById('ano-mensal');
+  sa.innerHTML = '<option value="">Todos os anos</option>';
+  anos.forEach(a => {
+    const o = document.createElement('option');
+    o.value = o.textContent = a;
+    sa.appendChild(o);
+  });
+}
+
+function exibirResumo() {
+  const entradas = dados.filter(d => d.Tipo === 'Entrada').reduce((s, d) => s + (d.Valor || 0), 0);
+  const saidas = dados.filter(d => d.Tipo === 'Saída').reduce((s, d) => s + (d.Valor || 0), 0);
+  document.getElementById('totalEntradas').textContent = formatarMoeda(entradas);
+  document.getElementById('totalSaidas').textContent = formatarMoeda(saidas);
+  document.getElementById('saldoFinal').textContent = formatarMoeda(entradas - saidas);
+
+  const ctx = document.getElementById('graficoSaldo').getContext('2d');
+  const labels = [...new Set(dados.map(d => `${d.Data.getDate()}/${d.Data.getMonth()+1}`))]
+    .sort((a,b) => parseDataBR(a) - parseDataBR(b));
+  const saldoAcum = labels.map(l => {
+    const ate = dados.filter(d => `${d.Data.getDate()}/${d.Data.getMonth()+1}` <= l);
+    const ent = ate.filter(d => d.Tipo === 'Entrada').reduce((s,d) => s + (d.Valor||0), 0);
+    const sai = ate.filter(d => d.Tipo === 'Saída').reduce((s,d) => s + (d.Valor||0), 0);
+    return ent - sai;
+  });
+  if (graficoSaldo) graficoSaldo.destroy();
+  graficoSaldo = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Saldo Acumulado', data: saldoAcum, borderColor: '#3b82f6', fill: false }] },
+    options: { responsive: true }
+  });
+}
+
+function exibirSemanal() {
+  const mesFiltro = document.getElementById('mes-semanal').value;
+  const dadosFiltrados = mesFiltro ? dados.filter(d => d.Aba === mesFiltro) : dados;
+  const semanas = {};
+  dadosFiltrados.forEach(d => {
+    const semana = `Semana ${Math.ceil(d.Data.getDate() / 7)}`;
+    semanas[semana] = semanas[semana] || { entrada: 0, saida: 0 };
+    semanas[semana][d.Tipo.toLowerCase() === 'entrada' ? 'entrada' : 'saida'] += (d.Valor || 0);
+  });
+  const labels = Object.keys(semanas).sort();
+  const entradas = labels.map(l => semanas[l].entrada);
+  const saidas = labels.map(l => semanas[l].saida);
+
+  const ctx = document.getElementById('graficoSemanal').getContext('2d');
+  if (graficoSemanal) graficoSemanal.destroy();
+  graficoSemanal = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Entradas', data: entradas, backgroundColor: '#10b981' },
+      { label: 'Saídas', data: saidas, backgroundColor: '#ef4444' }
+    ]},
+    options: { responsive: true }
+  });
+}
+
+function exibirMensal() {
+  const anoFiltro = document.getElementById('ano-mensal').value;
+  const dadosFiltrados = anoFiltro ? dados.filter(d => d.Data.getFullYear() == anoFiltro) : dados;
+  const meses = {};
+  dadosFiltrados.forEach(d => {
+    const mes = `${d.Data.getMonth()+1}/${d.Data.getFullYear()}`;
+    meses[mes] = meses[mes] || { entrada: 0, saida: 0 };
+    meses[mes][d.Tipo.toLowerCase() === 'entrada' ? 'entrada' : 'saida'] += (d.Valor || 0);
+  });
+  const head = document.getElementById('tabelaMensalHead');
+  const body = document.getElementById('tabelaMensalBody');
+  head.innerHTML = `<tr class="bg-blue-800 text-white"><th class="p-2">Mês</th><th class="p-2">Entradas</th><th class="p-2">Saídas</th><th class="p-2">Saldo</th></tr>`;
+  body.innerHTML = '';
+  Object.keys(meses).sort().forEach(m => {
+    const e = meses[m].entrada, s = meses[m].saida;
+    const tr = document.createElement('tr');
+    tr.className = 'border-b';
+    tr.innerHTML = `<td class="p-2">${m}</td><td class="p-2">${formatarMoeda(e)}</td><td class="p-2">${formatarMoeda(s)}</td><td class="p-2 font-bold">${formatarMoeda(e-s)}</td>`;
+    body.appendChild(tr);
+  });
+}
+
+function exibirComparativo() {
+  const anos = [...new Set(dados.map(d => d.Data.getFullYear()).filter(Boolean))].sort();
+  const porAno = {};
+  anos.forEach(a => { porAno[a] = { entrada: 0, saida: 0 }; });
+  dados.forEach(d => {
+    const ano = d.Data.getFullYear();
+    porAno[ano][d.Tipo.toLowerCase() === 'entrada' ? 'entrada' : 'saida'] += (d.Valor || 0);
+  });
+  const labels = anos;
+  const entradas = labels.map(a => porAno[a].entrada);
+  const saidas = labels.map(a => porAno[a].saida);
+
+  const ctx = document.getElementById('graficoComparativo').getContext('2d');
+  if (graficoComparativo) graficoComparativo.destroy();
+  graficoComparativo = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Entradas', data: entradas, backgroundColor: '#10b981' },
+      { label: 'Saídas', data: saidas, backgroundColor: '#ef4444' }
+    ]},
+    options: { responsive: true }
+  });
+}
+
+function exibirTudo() { exibirResumo(); exibirSemanal(); exibirMensal(); exibirComparativo(); }
+
+function showTab(id) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active-tab'));
+  document.getElementById(id).classList.add('active');
+  document.getElementById(id + '-btn').classList.add('active-tab');
+  if (id === 'semanal') exibirSemanal();
+  if (id === 'mensal') exibirMensal();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  carregarDados();
+  document.getElementById('mes-semanal').addEventListener('change', exibirSemanal);
+  document.getElementById('ano-mensal').addEventListener('change', exibirMensal);
+  document.querySelectorAll('.tab-button').forEach(b => {
+    b.addEventListener('click', () => showTab(b.id.replace('-btn', '')));
+  });
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(console.error);
+  }
+});
+      </code></pre>
     </div>
 
-    <!-- ABA POR SEMANA -->
-    <div id="semanal" class="tab-content">
-      <div class="filters mb-4">
-        <select id="mes-semanal" class="p-2 border rounded w-full md:w-auto">
-          <option value="">Todos os meses</option>
-        </select>
-      </div>
-      <canvas id="graficoSemanal" class="chart"></canvas>
+    <div class="text-center">
+      <button id="download-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition">
+        📥 Baixar script.js
+      </button>
     </div>
+  </div>
 
-    <!-- ABA POR MÊS -->
-    <div id="mensal" class="tab-content">
-      <div class="filters mb-4">
-        <select id="ano-mensal" class="p-2 border rounded w-full md:w-auto">
-          <option value="">Todos os anos</option>
-        </select>
-      </div>
-      <div class="table-container overflow-x-auto">
-        <table class="w-full min-w-max">
-          <thead id="tabelaMensalHead"></thead>
-          <tbody id="tabelaMensalBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ABA COMPARATIVO -->
-    <div id="comparativo" class="tab-content">
-      <canvas id="graficoComparativo" class="chart"></canvas>
-    </div>
-
-  </main>
-
-  <footer class="bg-blue-800 text-white text-center py-3 mt-8">
-    <p>© 2025 Minhas Finanças • JL Sports Analytics</p>
-  </footer>
-
-  <script src="script.js"></script>
+  <script>
+    // Gera o download do arquivo
+    document.getElementById('download-btn').addEventListener('click', () => {
+      const code = document.getElementById('code-preview').textContent;
+      const blob = new Blob([code], { type: 'text/javascript' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'script.js';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  </script>
 </body>
 </html>
